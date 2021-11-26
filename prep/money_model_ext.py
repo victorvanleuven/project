@@ -7,8 +7,6 @@ from mesa.space import MultiGrid
 from mesa.datacollection import DataCollector
 from mesa.batchrunner import BatchRunner
 
-# from mesa.datacollection import DataCollector
-
 def compute_gini(model):
     agent_wealths = [agent.wealth for agent in model.schedule.agents]
     x = sorted(agent_wealths)
@@ -17,7 +15,6 @@ def compute_gini(model):
     return (1 + (1/N) - 2*B)
 
 class MoneyAgent(Agent):
-    """ An agent with fixed initial wealth."""
     def __init__(self, unique_id, model):
         super().__init__(unique_id, model)
         self.wealth = 1
@@ -30,6 +27,13 @@ class MoneyAgent(Agent):
         new_position = self.random.choice(possible_steps)
         self.model.grid.move_agent(self, new_position)
 
+    def step(self):
+        self.move()
+        if self.wealth > 0:
+            self.give_money()
+
+class standard(MoneyAgent):
+    # standard agent
     def give_money(self):
         cellmates = self.model.grid.get_cell_list_contents([self.pos])
         if len(cellmates) > 1:
@@ -37,10 +41,47 @@ class MoneyAgent(Agent):
             other.wealth += 1
             self.wealth -= 1
 
-    def step(self):
-        self.move()
-        if self.wealth > 0:
-            self.give_money()
+class unequalizing(MoneyAgent):
+    # unequilizing agent
+    def give_money(self):
+        cellmates = self.model.grid.get_cell_list_contents([self.pos])
+        
+        # retrieve the wealth of the neighbors
+        wealth_neighbors = [cellmate.wealth for cellmate in cellmates]
+        
+        # add 0.5 to all wealth levels
+        augmented_wealth_neighbors = [neighbor + 0.5 for neighbor in wealth_neighbors]
+        sum_wealth_neighbors = sum(augmented_wealth_neighbors)
+
+        # calculate probability
+        chance_chosen = [(neighbor / sum_wealth_neighbors) for neighbor in augmented_wealth_neighbors]
+              
+        if len(cellmates) > 1:
+            other = self.random.choices(cellmates, weights = chance_chosen, k = 1)
+            other = other[0]
+            other.wealth += 1
+            self.wealth -= 1
+
+class equalizing(MoneyAgent):
+    # equilizing agent
+    def give_money(self):
+        cellmates = self.model.grid.get_cell_list_contents([self.pos])
+
+        # retrieve the wealth of the neighbors
+        wealth_neighbors = [cellmate.wealth for cellmate in cellmates]
+        
+        # add 0.5 to all wealth levels
+        augmented_wealth_neighbors = [neighbor + 0.5 for neighbor in wealth_neighbors]
+        sum_wealth_neighbors = sum(augmented_wealth_neighbors)
+
+        # calculate probability
+        chance_chosen = [1/(neighbor / sum_wealth_neighbors) for neighbor in augmented_wealth_neighbors]
+              
+        if len(cellmates) > 1:
+            other = self.random.choices(cellmates, weights = chance_chosen, k = 1)
+            other = other[0]
+            other.wealth += 1
+            self.wealth -= 1
 
 class MoneyModel(Model):
     """A model with some number of agents."""
@@ -52,7 +93,7 @@ class MoneyModel(Model):
 
         # Create agents
         for i in range(self.num_agents):
-            a = MoneyAgent(i, self)
+            a = standard(i, self)
             self.schedule.add(a)
             # Add the agent to a random grid cell
             x = self.random.randrange(self.grid.width)
@@ -67,14 +108,4 @@ class MoneyModel(Model):
         self.datacollector.collect(self)
         self.schedule.step()
 
-fixed_params = {"width": 10,
-               "height": 10}
-variable_params = {"N": 100}
-
-batch_run = BatchRunner(MoneyModel,
-                        variable_params,
-                        fixed_params,
-                        iterations=10,
-                        max_steps=100,
-                        model_reporters={"Gini": compute_gini})
 batch_run.run_all()
